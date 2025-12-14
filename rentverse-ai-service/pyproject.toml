@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "rentverse-ai-service"
+version = "0.1.0"
+description = ""
+authors = ["aliepratama <aliepratama2@gmail.com>"]
+readme = "README.md"
+packages = [{include = "rentverse"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.116.1"
+uvicorn = {extras = ["standard"], version = "^0.35.0"}
+pydantic-settings = "^2.0.0"
+pandas = "^2.0.0"
+numpy = "^1.24.0"
+scikit-learn = "^1.3.0"
+joblib = "^1.3.0"
+python-multipart = "^0.0.6"
+notebook = "^7.4.5"
+matplotlib = "^3.10.6"
+click = "^8.1.0"
+pydantic = "^2.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+pytest = "^8.4.1"
+
+[tool.poetry.scripts]
+dev = "rentverse.cli:dev"
+start = "rentverse.cli:start"

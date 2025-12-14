@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+:root {
+    --background: #ffffff;
+    --foreground: #171717;
+
+    /* Teal color scheme */
+    --teal-50: #F1FCF8;
+    --teal-100: #D1F6EB;
+    --teal-200: #A3ECD9;
+    --teal-300: #6EDAC1;
+    --teal-400: #40C1A8;
+    --teal-500: #26A68F;
+    --teal-600: #1C8574;
+    --teal-700: #1A6B5E;
+    --teal-800: #1A554E;
+    --teal-900: #1A4741;
+    --teal-950: #0B3531;
+
+    /* Orange color scheme */
+    --orange-50: #FFF4ED;
+    --orange-100: #FFE6D5;
+    --orange-200: #FEC9AA;
+    --orange-300: #FEA273;
+    --orange-400: #FC713B;
+    --orange-500: #FA4F19;
+    --orange-600: #EB320B;
+    --orange-700: #C3220B;
+    --orange-800: #9B1D11;
+    --orange-900: #7C1B12;
+    --orange-950: #430A07;
+
+    /* Slate color scheme */
+    --slate-50: #F8FAFC;
+    --slate-100: #F1F5F9;
+    --slate-200: #E2E8F0;
+    --slate-300: #CAD5E2;
+    --slate-400: #90A1B9;
+    --slate-500: #62748E;
+    --slate-600: #45556C;
+    --slate-700: #314158;
+    --slate-800: #1D293D;
+    --slate-900: #0F172B;
+    --slate-950: #020618;
+}
+
+@theme {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-serif: Poly, serif;
+    --font-sans: Manrope, sans-serif;
+
+    /* Custom teal color scheme */
+    --color-teal-50: var(--teal-50);
+    --color-teal-100: var(--teal-100);
+    --color-teal-200: var(--teal-200);
+    --color-teal-300: var(--teal-300);
+    --color-teal-400: var(--teal-400);
+    --color-teal-500: var(--teal-500);
+    --color-teal-600: var(--teal-600);
+    --color-teal-700: var(--teal-700);
+    --color-teal-800: var(--teal-800);
+    --color-teal-900: var(--teal-900);
+    --color-teal-950: var(--teal-950);
+
+    /* Custom orange color scheme */
+    --color-orange-50: var(--orange-50);
+    --color-orange-100: var(--orange-100);
+    --color-orange-200: var(--orange-200);
+    --color-orange-300: var(--orange-300);
+    --color-orange-400: var(--orange-400);
+    --color-orange-500: var(--orange-500);
+    --color-orange-600: var(--orange-600);
+    --color-orange-700: var(--orange-700);
+    --color-orange-800: var(--orange-800);
+    --color-orange-900: var(--orange-900);
+    --color-orange-950: var(--orange-950);
+
+    /* Custom slate color scheme */
+    --color-slate-50: var(--slate-50);
+    --color-slate-100: var(--slate-100);
+    --color-slate-200: var(--slate-200);
+    --color-slate-300: var(--slate-300);
+    --color-slate-400: var(--slate-400);
+    --color-slate-500: var(--slate-500);
+    --color-slate-600: var(--slate-600);
+    --color-slate-700: var(--slate-700);
+    --color-slate-800: var(--slate-800);
+    --color-slate-900: var(--slate-900);
+    --color-slate-950: var(--slate-950);
+}
+
+body {
+    background: var(--background);
+    color: var(--foreground);
+}

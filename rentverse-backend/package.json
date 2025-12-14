@@ -1,0 +1,87 @@
+{
+  "name": "rentverse-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Rentverse application with Prisma, PostgreSQL, and Swagger",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "build": "echo 'No build process needed for this project'",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:seed": "node prisma/seed.js",
+    "db:reset": "prisma migrate reset",
+    "db:deploy": "prisma migrate deploy",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint src/ --ext .js,.jsx,.ts,.tsx --fix",
+    "prepare": "husky install"
+  },
+  "keywords": [
+    "express",
+    "api",
+    "swagger",
+    "rentverse",
+    "prisma",
+    "postgresql"
+  ],
+  "author": "jekoyu",
+  "license": "ISC",
+  "packageManager": "pnpm@10.13.1",
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.3.1",
+    "@supabase/supabase-js": "^2.57.0",
+    "apple-signin-auth": "^2.0.0",
+    "axios": "^1.11.0",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "ejs": "^3.1.10",
+    "express": "^4.18.2",
+    "express-session": "^1.18.2",
+    "express-validator": "^7.0.1",
+    "googleapis": "^159.0.0",
+    "helmet": "^7.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.2",
+    "passport": "^0.7.0",
+    "passport-facebook": "^3.0.0",
+    "passport-github2": "^0.1.12",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-twitter": "^1.0.4",
+    "puppeteer": "^24.22.0",
+    "qrcode": "^1.5.4",
+    "streamifier": "^0.1.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.48.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^14.0.1",
+    "node-fetch": "^2.7.0",
+    "nodemon": "^3.0.1",
+    "prettier": "^3.0.3",
+    "prisma": "^5.3.1"
+  },
+  "lint-staged": {
+    "src/**/*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}
