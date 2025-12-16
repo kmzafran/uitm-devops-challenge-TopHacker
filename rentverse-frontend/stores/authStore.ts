@@ -33,6 +33,10 @@ interface AuthActions {
   initializeAuth: () => void
   validateToken: () => Promise<boolean>
   refreshUserData: () => Promise<boolean>
+
+  // MFA functionality
+  setOtp: (otp: string) => void
+  submitOtp: () => Promise<void>
 }
 
 interface AuthFormState {
@@ -43,6 +47,7 @@ interface AuthFormState {
   email: string
   phone: string
   signUpPassword: string
+  otp: string
 }
 
 type AuthStore = AuthState & AuthFormState & AuthActions
@@ -53,6 +58,8 @@ const useAuthStore = create<AuthStore>((set, get) => ({
   isLoggedIn: false,
   isLoading: false,
   error: null,
+  mfaRequired: false,
+  userId: null,
 
   // Form state
   password: '',
@@ -62,6 +69,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
   email: '',
   phone: '',
   signUpPassword: '',
+  otp: '',
 
   // Actions
   setPassword: (password: string) => set({ password }),
@@ -73,6 +81,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
   setSignUpPassword: (signUpPassword: string) => set({ signUpPassword }),
   setLoading: (isLoading: boolean) => set({ isLoading }),
   setError: (error: string | null) => set({ error }),
+  setOtp: (otp: string) => set({ otp }),
 
   validateEmail: (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -125,6 +134,17 @@ const useAuthStore = create<AuthStore>((set, get) => ({
       const result = await response.json()
 
       if (response.ok && result.success) {
+        if (result.data.requiresMfa) {
+          set({
+            mfaRequired: true,
+            userId: result.data.userId,
+            password: '',
+            error: null,
+          })
+          window.location.href = '/auth/verify-mfa'
+          return
+        }
+
         // Store user data and token
         const backendUser = result.data.user
         
@@ -184,6 +204,69 @@ const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
+  submitOtp: async () => {
+    const { userId, otp, setLoading, setError } = get()
+
+    if (!userId || !otp) {
+      setError('User ID and OTP are required.')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId, otp }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        const backendUser = result.data.user
+        const user: User = {
+          id: backendUser.id,
+          email: backendUser.email,
+          firstName: backendUser.firstName || '',
+          lastName: backendUser.lastName || '',
+          name: backendUser.name || `${backendUser.firstName || ''} ${backendUser.lastName || ''}`.trim(),
+          dateOfBirth: backendUser.dateOfBirth || '',
+          phone: backendUser.phone || '',
+          role: backendUser.role || 'user',
+          birthdate: backendUser.dateOfBirth || undefined,
+        }
+
+        set({
+          user,
+          isLoggedIn: true,
+          mfaRequired: false,
+          userId: null,
+          otp: '',
+          error: null,
+        })
+
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('authToken', result.data.token)
+          localStorage.setItem('authUser', JSON.stringify(user))
+          setCookie('authToken', result.data.token, 7)
+        }
+
+        window.location.href = '/'
+      } else {
+        setError(result.message || 'OTP verification failed.')
+      }
+    } catch (error) {
+      console.error('OTP verification error:', error)
+      setError('OTP verification failed. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  },
+
   submitSignUp: async () => {
     const { firstName, lastName, email, signUpPassword, birthdate, phone, setLoading, setError } = get()
 
@@ -206,23 +289,8 @@ const useAuthStore = create<AuthStore>((set, get) => ({
       })
 
       if (result.success) {
-        // Store user data and token
-        const backendUser = result.data.user
-        const user: User = {
-          id: backendUser.id,
-          email: backendUser.email,
-          firstName: backendUser.firstName || '',
-          lastName: backendUser.lastName || '',
-          name: backendUser.name || `${backendUser.firstName || ''} ${backendUser.lastName || ''}`.trim(),
-          dateOfBirth: backendUser.dateOfBirth || birthdate,
-          phone: backendUser.phone || phone,
-          role: backendUser.role || 'user',
-          birthdate: backendUser.dateOfBirth || birthdate,
-        }
-
+        // Clear form fields after successful sign-up
         set({
-          user,
-          isLoggedIn: true,
           firstName: '',
           lastName: '',
           email: '',
@@ -231,16 +299,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
           birthdate: '',
           error: null,
         })
-
-        // Store token and user data in localStorage for future API calls
-        if (typeof window !== 'undefined' && result.data.token) {
-          localStorage.setItem('authToken', result.data.token)
-          localStorage.setItem('authUser', JSON.stringify(user))
-          // Also set cookie for server-side middleware access
-          setCookie('authToken', result.data.token, 7) // 7 days expiry
-        }
-
-        // Navigate to home page instead of forcing to property page
+        // Redirect to homepage after successful registration
         window.location.href = '/'
       } else {
         // Handle errors

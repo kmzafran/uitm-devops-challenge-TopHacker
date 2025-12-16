@@ -175,7 +175,6 @@ router.post(
           dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
           phone: phone || null,
           role: 'USER',
-          mfaEnabled: true,
         },
         select: {
           id: true,
@@ -191,10 +190,20 @@ router.post(
         },
       });
 
-      // Don't generate a token, just return a success message
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: user.id, email: user.email, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      );
+
       res.status(201).json({
         success: true,
-        message: 'User registered successfully. Please log in.',
+        message: 'User registered successfully',
+        data: {
+          user,
+          token,
+        },
       });
     } catch (error) {
       console.error('User registration error:', error);
@@ -267,23 +276,7 @@ router.post(
         });
       }
 
-      // If MFA is enabled, send OTP and require verification
-      if (user.mfaEnabled) {
-        // Generate and send OTP
-        await OtpService.sendOtp(user.id, user.mfaMethod || 'EMAIL');
-
-        return res.json({
-          success: true,
-          message: 'OTP sent to your email',
-          data: {
-            requiresMfa: true,
-            userId: user.id,
-            mfaMethod: user.mfaMethod || 'EMAIL',
-          },
-        });
-      }
-
-      // Generate JWT token for non-MFA users
+      // Generate JWT token
       const token = jwt.sign(
         { userId: user.id, email: user.email, role: user.role },
         process.env.JWT_SECRET,
@@ -311,340 +304,6 @@ router.post(
     }
   }
 );
-
-/**
- * @swagger
- * /api/auth/verify-otp:
- *   post:
- *     summary: Verify OTP for MFA login
- *     tags: [Authentication]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - userId
- *               - otp
- *             properties:
- *               userId:
- *                 type: string
- *                 description: User ID from MFA login response
- *               otp:
- *                 type: string
- *                 description: OTP code received via email/SMS
- *     responses:
- *       200:
- *         description: OTP verified successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
- *       400:
- *         description: Invalid or expired OTP
- *       401:
- *         description: User not found
- */
-router.post('/verify-otp', async (req, res) => {
-  try {
-    const { userId, otp } = req.body;
-
-    if (!userId || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'User ID and OTP are required',
-      });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user || !user.isActive) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not found or inactive',
-      });
-    }
-
-    const isValid = await OtpService.verifyOtp(userId, otp, 'LOGIN');
-    if (!isValid) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired OTP',
-      });
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-    );
-
-    // Remove password from response
-    // eslint-disable-next-line no-unused-vars
-    const { password: _, ...userWithoutPassword } = user;
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user: userWithoutPassword,
-        token,
-      },
-    });
-  } catch (error) {
-    console.error('Verify OTP error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
-  }
-});
-
-/**
- * @swagger
- * /api/auth/mfa/enable:
- *   post:
- *     summary: Initiate MFA enable process
- *     tags: [Authentication]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               method:
- *                 type: string
- *                 enum: [EMAIL, SMS]
- *                 default: EMAIL
- *     responses:
- *       200:
- *         description: OTP sent for MFA setup
- *       401:
- *         description: Unauthorized
- */
-router.post('/mfa/enable', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const { method = 'EMAIL' } = req.body;
-
-    const otp = await OtpService.createOtp(decoded.userId, 'ENABLE_MFA');
-    await OtpService.sendOtpEmail(decoded.email, otp.code);
-
-    res.json({
-      success: true,
-      message: 'OTP sent for MFA setup',
-    });
-  } catch (error) {
-    console.error('MFA enable error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
-  }
-});
-
-/**
- * @swagger
- * /api/auth/mfa/enable/verify:
- *   post:
- *     summary: Verify OTP and enable MFA
- *     tags: [Authentication]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - otp
- *             properties:
- *               otp:
- *                 type: string
- *                 description: OTP code received
- *     responses:
- *       200:
- *         description: MFA enabled successfully
- *       400:
- *         description: Invalid OTP
- *       401:
- *         description: Unauthorized
- */
-router.post('/mfa/enable/verify', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const { otp } = req.body;
-
-    const isValid = await OtpService.verifyOtp(decoded.userId, otp, 'ENABLE_MFA');
-    if (!isValid) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid OTP',
-      });
-    }
-
-    await prisma.user.update({
-      where: { id: decoded.userId },
-      data: {
-        mfaEnabled: true,
-        mfaMethod: 'EMAIL',
-        mfaVerifiedAt: new Date(),
-      },
-    });
-
-    res.json({
-      success: true,
-      message: 'MFA enabled successfully',
-    });
-  } catch (error) {
-    console.error('MFA enable verify error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
-  }
-});
-
-/**
- * @swagger
- * /api/auth/mfa/disable:
- *   post:
- *     summary: Initiate MFA disable process
- *     tags: [Authentication]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: OTP sent for MFA disable
- *       401:
- *         description: Unauthorized
- */
-router.post('/mfa/disable', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const otp = await OtpService.createOtp(decoded.userId, 'DISABLE_MFA');
-    await OtpService.sendOtpEmail(decoded.email, otp.code);
-
-    res.json({
-      success: true,
-      message: 'OTP sent for MFA disable',
-    });
-  } catch (error) {
-    console.error('MFA disable error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
-  }
-});
-
-/**
- * @swagger
- * /api/auth/mfa/disable/verify:
- *   post:
- *     summary: Verify OTP and disable MFA
- *     tags: [Authentication]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - otp
- *             properties:
- *               otp:
- *                 type: string
- *                 description: OTP code received
- *     responses:
- *       200:
- *         description: MFA disabled successfully
- *       400:
- *         description: Invalid OTP
- *       401:
- *         description: Unauthorized
- */
-router.post('/mfa/disable/verify', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided',
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const { otp } = req.body;
-
-    const isValid = await OtpService.verifyOtp(decoded.userId, otp, 'DISABLE_MFA');
-    if (!isValid) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid OTP',
-      });
-    }
-
-    await prisma.user.update({
-      where: { id: decoded.userId },
-      data: {
-        mfaEnabled: false,
-        mfaMethod: null,
-        mfaVerifiedAt: null,
-      },
-    });
-
-    res.json({
-      success: true,
-      message: 'MFA disabled successfully',
-    });
-  } catch (error) {
-    console.error('MFA disable verify error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
-  }
-});
 
 /**
  * @swagger
@@ -685,9 +344,6 @@ router.get('/me', async (req, res) => {
         phone: true,
         role: true,
         isActive: true,
-        mfaEnabled: true,
-        mfaMethod: true,
-        mfaVerifiedAt: true,
         createdAt: true,
       },
     });

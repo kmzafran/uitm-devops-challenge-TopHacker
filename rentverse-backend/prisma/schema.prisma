@@ -66,11 +66,42 @@ model User {
   propertyViews    PropertyView[]    @relation("PropertyViews")
   propertyRatings  PropertyRating[]  @relation("PropertyRatings")
   propertyFavorites PropertyFavorite[] @relation("PropertyFavorites")
+  mfaEnabled     Boolean     @default(false)
+  mfaSecret      String?     // For TOTP (optional, for future app-based MFA)
+  mfaMethod      MfaMethod?  @default(EMAIL)
+  mfaVerifiedAt  DateTime?
 
+  otps          Otp[]
   @@map("users")
 }
 
+// New OTP model
+model Otp {
+  id        String   @id @default(uuid())
+  userId    String
+  code      String
+  type      OtpType  @default(LOGIN)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId, type, expiresAt])
+  @@map("otps")
+}
 
+// Enums
+enum MfaMethod {
+  EMAIL
+  SMS
+}
+
+enum OtpType {
+  LOGIN
+  ENABLE_MFA
+  DISABLE_MFA
+}
 
 /// Listing properti yang ditawarkan (detail fisik, lokasi, harga).
 /// Gambar/Foto disimpan langsung di kolom `images` (array URL).
