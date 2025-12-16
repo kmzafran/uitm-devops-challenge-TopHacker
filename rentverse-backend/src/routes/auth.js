@@ -501,7 +501,11 @@ router.post('/mfa/enable/verify', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { otp } = req.body;
 
-    const isValid = await OtpService.verifyOtp(decoded.userId, otp, 'ENABLE_MFA');
+    const isValid = await OtpService.verifyOtp(
+      decoded.userId,
+      otp,
+      'ENABLE_MFA'
+    );
     if (!isValid) {
       return res.status(400).json({
         success: false,
@@ -616,7 +620,11 @@ router.post('/mfa/disable/verify', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { otp } = req.body;
 
-    const isValid = await OtpService.verifyOtp(decoded.userId, otp, 'DISABLE_MFA');
+    const isValid = await OtpService.verifyOtp(
+      decoded.userId,
+      otp,
+      'DISABLE_MFA'
+    );
     if (!isValid) {
       return res.status(400).json({
         success: false,
