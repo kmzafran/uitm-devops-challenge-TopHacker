@@ -404,6 +404,144 @@ class BookingsController {
       });
     }
   }
+
+  // ========== DIGITAL AGREEMENT SIGNING (Module 3) ==========
+
+  /**
+   * Sign rental agreement (tenant or landlord)
+   * Uses validateAgreementAccess and validateSigningEligibility middleware
+   */
+  async signAgreement(req, res) {
+    try {
+      const { prisma } = require('../../config/database');
+      const { generateAgreementHash } = require('../../middleware/agreementValidation');
+
+      const lease = req.lease;
+      const isTenant = req.isTenant;
+      const isLandlord = req.isLandlord;
+
+      // Determine which field to update
+      const updateData = {};
+      if (isTenant) {
+        updateData.signedByTenant = true;
+        updateData.tenantSignedAt = new Date();
+      } else if (isLandlord) {
+        updateData.signedByLandlord = true;
+        updateData.landlordSignedAt = new Date();
+      }
+
+      // Get full lease data for hash generation if not already hashed
+      const fullLease = await prisma.lease.findUnique({
+        where: { id: lease.id },
+        include: {
+          agreement: true,
+        },
+      });
+
+      // Generate content hash if not exists
+      if (!fullLease.agreement?.contentHash) {
+        updateData.contentHash = generateAgreementHash({
+          leaseId: fullLease.id,
+          tenantId: fullLease.tenantId,
+          landlordId: fullLease.landlordId,
+          propertyId: fullLease.propertyId,
+          startDate: fullLease.startDate,
+          endDate: fullLease.endDate,
+          rentAmount: fullLease.rentAmount,
+          generatedAt: fullLease.agreement?.generatedAt || new Date(),
+        });
+      }
+
+      // Update agreement
+      const updatedAgreement = await prisma.rentalAgreement.update({
+        where: { leaseId: lease.id },
+        data: updateData,
+      });
+
+      const fullyExecuted = updatedAgreement.signedByTenant && updatedAgreement.signedByLandlord;
+
+      console.log('[AGREEMENT] Signed:', {
+        leaseId: lease.id,
+        signedBy: isTenant ? 'tenant' : 'landlord',
+        fullyExecuted,
+        timestamp: new Date().toISOString(),
+      });
+
+      res.json({
+        success: true,
+        message: `Agreement signed successfully by ${isTenant ? 'tenant' : 'landlord'}`,
+        data: {
+          signedByTenant: updatedAgreement.signedByTenant,
+          signedByLandlord: updatedAgreement.signedByLandlord,
+          tenantSignedAt: updatedAgreement.tenantSignedAt,
+          landlordSignedAt: updatedAgreement.landlordSignedAt,
+          fullyExecuted,
+          contentHash: updatedAgreement.contentHash,
+        },
+      });
+    } catch (error) {
+      console.error('Sign agreement error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to sign agreement',
+      });
+    }
+  }
+
+  /**
+   * Get agreement signing status
+   */
+  async getAgreementStatus(req, res) {
+    try {
+      const { prisma } = require('../../config/database');
+      const { verifyAgreementIntegrity } = require('../../middleware/agreementValidation');
+
+      const lease = req.lease;
+
+      const fullLease = await prisma.lease.findUnique({
+        where: { id: lease.id },
+        include: {
+          agreement: true,
+          tenant: { select: { id: true, name: true, email: true } },
+          landlord: { select: { id: true, name: true, email: true } },
+        },
+      });
+
+      if (!fullLease.agreement) {
+        return res.json({
+          success: true,
+          data: {
+            hasAgreement: false,
+            message: 'No rental agreement generated for this booking',
+          },
+        });
+      }
+
+      const isIntegrityValid = verifyAgreementIntegrity(fullLease.agreement, fullLease);
+
+      res.json({
+        success: true,
+        data: {
+          hasAgreement: true,
+          signedByTenant: fullLease.agreement.signedByTenant,
+          signedByLandlord: fullLease.agreement.signedByLandlord,
+          tenantSignedAt: fullLease.agreement.tenantSignedAt,
+          landlordSignedAt: fullLease.agreement.landlordSignedAt,
+          fullyExecuted: fullLease.agreement.signedByTenant && fullLease.agreement.signedByLandlord,
+          integrityValid: isIntegrityValid,
+          generatedAt: fullLease.agreement.generatedAt,
+          tenant: fullLease.tenant,
+          landlord: fullLease.landlord,
+        },
+      });
+    } catch (error) {
+      console.error('Get agreement status error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get agreement status',
+      });
+    }
+  }
 }
 
 module.exports = new BookingsController();

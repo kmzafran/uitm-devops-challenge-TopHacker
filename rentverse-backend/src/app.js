@@ -237,6 +237,7 @@ app.use(
 // Import routes
 const authRoutes = require('./routes/auth');
 const uploadRoutes = require('./routes/upload');
+const adminRoutes = require('./routes/admin');
 const userRoutes = require('./modules/users/users.routes');
 const propertyRoutes = require('./modules/properties/properties.routes');
 const bookingRoutes = require('./modules/bookings/bookings.routes');
@@ -247,6 +248,7 @@ const predictionRoutes = require('./modules/predictions/predictions.routes');
 // Use routes with rate limiting
 app.use('/api/auth', authLimiter, authRoutes); // Stricter rate limit for auth
 app.use('/api/upload', uploadRoutes);
+app.use('/api/admin', apiLimiter, adminRoutes); // Admin dashboard routes
 app.use('/api/users', apiLimiter, userRoutes);
 app.use('/api/properties', apiLimiter, propertyRoutes);
 app.use('/api/bookings', apiLimiter, bookingRoutes);

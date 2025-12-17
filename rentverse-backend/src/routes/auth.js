@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const { prisma } = require('../config/database');
 const { passport, handleAppleSignIn } = require('../config/passport');
 const OtpService = require('../services/otp.services');
+const activityLogger = require('../services/activityLogger');
 
 const router = express.Router();
 
@@ -192,6 +193,10 @@ router.post(
       });
 
       // Don't generate a token, just return a success message
+      // Log registration
+      const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+      activityLogger.logRegister(user.id, email, ip);
+
       res.status(201).json({
         success: true,
         message: 'User registered successfully. Please log in.',
@@ -260,7 +265,13 @@ router.post(
 
       // Check password
       const isPasswordValid = await bcrypt.compare(password, user.password);
+      const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+      const userAgent = req.headers['user-agent'];
+
       if (!isPasswordValid) {
+        // Log failed login attempt
+        activityLogger.logLoginFailed(email, ip, userAgent, 'Invalid password');
+
         return res.status(401).json({
           success: false,
           message: 'Invalid credentials',
@@ -293,6 +304,9 @@ router.post(
       // Remove password from response
       // eslint-disable-next-line no-unused-vars
       const { password: _, ...userWithoutPassword } = user;
+
+      // Log successful login (non-MFA)
+      activityLogger.logLoginSuccess(user.id, user.email, ip, userAgent);
 
       res.json({
         success: true,
@@ -386,6 +400,10 @@ router.post('/verify-otp', async (req, res) => {
     // Remove password from response
     // eslint-disable-next-line no-unused-vars
     const { password: _, ...userWithoutPassword } = user;
+
+    // Log successful MFA verification
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    activityLogger.logMfaVerified(user.id, user.email, ip);
 
     res.json({
       success: true,

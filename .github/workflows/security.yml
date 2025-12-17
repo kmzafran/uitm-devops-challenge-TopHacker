@@ -1,0 +1,95 @@
+name: Security Checks
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Backend Security Checks
+      - name: Install backend dependencies
+        working-directory: ./rentverse-backend
+        run: npm install
+
+      - name: Run backend dependency audit
+        working-directory: ./rentverse-backend
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Run backend linting
+        working-directory: ./rentverse-backend
+        run: npm run lint --if-present
+        continue-on-error: true
+
+      # Frontend Security Checks
+      - name: Install frontend dependencies
+        working-directory: ./rentverse-frontend
+        run: npm install
+
+      - name: Run frontend dependency audit
+        working-directory: ./rentverse-frontend
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Run frontend linting
+        working-directory: ./rentverse-frontend
+        run: npm run lint --if-present
+        continue-on-error: true
+
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['javascript']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

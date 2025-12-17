@@ -253,14 +253,19 @@ model Payment {
 
 /// Perjanjian sewa (hasil generate PDF) untuk satu lease.
 model RentalAgreement {
-  id          String   @id @default(uuid())
-  leaseId     String   @unique
-  pdfUrl      String?  // Cloudinary URL
-  publicId    String?  // Cloudinary public ID untuk delete
-  fileName    String?  // Nama file untuk display
-  fileSize    Int?     // Size dalam bytes
-  generatedAt DateTime @default(now())
-  lease       Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  id               String    @id @default(uuid())
+  leaseId          String    @unique
+  pdfUrl           String?   // Cloudinary URL
+  publicId         String?   // Cloudinary public ID untuk delete
+  fileName         String?   // Nama file untuk display
+  fileSize         Int?      // Size dalam bytes
+  contentHash      String?   // SHA256 hash for integrity verification
+  signedByTenant   Boolean   @default(false)
+  signedByLandlord Boolean   @default(false)
+  tenantSignedAt   DateTime?
+  landlordSignedAt DateTime?
+  generatedAt      DateTime  @default(now())
+  lease            Lease     @relation(fields: [leaseId], references: [id], onDelete: Cascade)
 
   @@map("rental_agreements")
 }

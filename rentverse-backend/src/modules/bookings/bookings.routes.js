@@ -445,4 +445,90 @@ router.get(
   bookingsController.downloadRentalAgreementPDF
 );
 
+// ========== DIGITAL AGREEMENT SIGNING (Module 3) ==========
+const {
+  validateAgreementAccess,
+  validateSigningEligibility
+} = require('../../middleware/agreementValidation');
+
+/**
+ * @swagger
+ * /api/bookings/{id}/sign-agreement:
+ *   post:
+ *     summary: Sign rental agreement (tenant or landlord)
+ *     description: Digitally sign the rental agreement. Both tenant and landlord must sign.
+ *     tags: [Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Booking ID
+ *     responses:
+ *       200:
+ *         description: Agreement signed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     signedByTenant:
+ *                       type: boolean
+ *                     signedByLandlord:
+ *                       type: boolean
+ *                     fullyExecuted:
+ *                       type: boolean
+ *       400:
+ *         description: Agreement cannot be signed or already signed
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Access denied
+ *       404:
+ *         description: Booking not found
+ */
+router.post(
+  '/:id/sign-agreement',
+  auth,
+  validateAgreementAccess,
+  validateSigningEligibility,
+  bookingsController.signAgreement
+);
+
+/**
+ * @swagger
+ * /api/bookings/{id}/agreement-status:
+ *   get:
+ *     summary: Get agreement signing status
+ *     tags: [Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Booking ID
+ *     responses:
+ *       200:
+ *         description: Agreement status retrieved
+ */
+router.get(
+  '/:id/agreement-status',
+  auth,
+  validateAgreementAccess,
+  bookingsController.getAgreementStatus
+);
+
 module.exports = router;
