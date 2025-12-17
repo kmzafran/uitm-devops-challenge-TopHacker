@@ -18,7 +18,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint src/ --ext .js,.jsx,.ts,.tsx --fix",
-    "prepare": "husky install"
+    "prepare": "cd .. && husky install"
   },
   "keywords": [
     "express",
