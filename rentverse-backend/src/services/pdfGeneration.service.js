@@ -1,7 +1,16 @@
 const fs = require('fs');
 const path = require('path');
 const ejs = require('ejs');
-const puppeteer = require('puppeteer');
+// Use puppeteer-core with @sparticuz/chromium for production (Render.com)
+const isProduction = process.env.NODE_ENV === 'production';
+let puppeteer;
+let chromium;
+if (isProduction) {
+  puppeteer = require('puppeteer-core');
+  chromium = require('@sparticuz/chromium');
+} else {
+  puppeteer = require('puppeteer');
+}
 const { getSignatureQRCode } = require('./eSignature.service');
 const { prisma } = require('../config/database');
 const {
@@ -13,7 +22,7 @@ const { v4: uuidv4 } = require('uuid');
 
 class PDFGenerationService {
   /**
-   * Upload PDF buffer to Cloudinary using signed upload
+   * Upload PDF buffer to Cloudinary using unsigned upload preset
    * @param {Buffer} pdfBuffer
    * @param {string} fileName
    * @returns {Promise<Object>}
@@ -32,51 +41,20 @@ class PDFGenerationService {
         .replace(/[-T:.Z]/g, '')
         .slice(0, 14);
       const shortId = uuidv4().split('-')[0];
-      const publicId = `${CLOUD_FOLDER_PREFIX}/rental-agreements/${fileName}-${fileTimestamp}-${shortId}`;
+      // Add .pdf extension to public_id for proper download format
+      const publicId = `${CLOUD_FOLDER_PREFIX}/rental-agreements/${fileName}-${fileTimestamp}-${shortId}.pdf`;
 
-      // Generate signature for signed upload
-      const signatureTimestamp = Math.round(new Date().getTime() / 1000);
-      const uploadParams = {
+      // Use unsigned upload with upload preset (simpler, no signature issues)
+      const uploadOptions = {
         public_id: publicId,
         resource_type: 'raw',
-        format: 'pdf',
-        use_filename: false,
-        unique_filename: false,
-        overwrite: true,
-        type: 'upload', // Public upload type
-        access_mode: 'public', // Make publicly accessible
-        timestamp: signatureTimestamp,
+        upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || 'rentverse_unsigned',
       };
 
-      // Generate signature using Cloudinary's method (fixed order and format)
-      const paramsToSign = {
-        public_id: publicId,
-        resource_type: 'raw',
-        timestamp: signatureTimestamp,
-        format: 'pdf',
-        overwrite: true,
-        use_filename: false,
-        unique_filename: false,
-        type: 'upload',
-        access_mode: 'public',
-      };
-
-      const signature = cloudinary.utils.api_sign_request(
-        paramsToSign,
-        process.env.CLOUD_API_SECRET
-      );
-
-      // Add signature and API key to params
-      const signedParams = {
-        ...uploadParams,
-        signature: signature,
-        api_key: process.env.CLOUD_API_KEY,
-      };
-
-      console.log('🔐 Using signed upload for PDF to Cloudinary...');
+      console.log('📤 Uploading PDF to Cloudinary (unsigned preset)...');
 
       const uploadStream = cloudinary.uploader.upload_stream(
-        signedParams,
+        uploadOptions,
         (error, result) => {
           if (error) {
             console.error('Cloudinary signed PDF upload error:', error);
@@ -224,6 +202,74 @@ class PDFGenerationService {
   }
 
   /**
+   * Create a simple placeholder PDF when Puppeteer/Chrome is not available
+   * @param {Object} lease
+   * @returns {Object} { buffer: Buffer, isHtml: boolean }
+   */
+  createPlaceholderPDF(lease) {
+    console.log('📄 Creating placeholder PDF...');
+
+    // Create a simple HTML template for the placeholder
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Rental Agreement - ${lease.property.title}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+          }
+          h1 { color: #333; }
+          .section { margin-bottom: 30px; }
+          .label { font-weight: bold; }
+          .value { margin-left: 10px; }
+        </style>
+      </head>
+      <body>
+        <h1>🏠 Rental Agreement (Placeholder)</h1>
+        <div class="section">
+          <p><span class="label">Property:</span><span class="value">${lease.property.title}</span></p>
+          <p><span class="label">Address:</span><span class="value">${lease.property.address}, ${lease.property.city}</span></p>
+          <p><span class="label">Tenant:</span><span class="value">${lease.tenant.name}</span></p>
+          <p><span class="label">Landlord:</span><span class="value">${lease.landlord.name}</span></p>
+          <p><span class="label">Start Date:</span><span class="value">${new Date(lease.startDate).toLocaleDateString()}</span></p>
+          <p><span class="label">End Date:</span><span class="value">${new Date(lease.endDate).toLocaleDateString()}</span></p>
+          <p><span class="label">Monthly Rent:</span><span class="value">RM ${lease.rentAmount.toFixed(2)}</span></p>
+        </div>
+        <div class="section">
+          <h2>📝 Note</h2>
+          <p>This is a placeholder document. The actual rental agreement PDF could not be generated because:</p>
+          <ul>
+            <li>Chrome/Chromium is not installed on the server</li>
+            <li>Or Puppeteer could not launch the browser</li>
+          </ul>
+          <p><strong>To enable PDF generation:</strong></p>
+          <ol>
+            <li>Install Chrome or Chromium on the server</li>
+            <li>Or set CHROME_PATH environment variable</li>
+            <li>Restart the backend server</li>
+          </ol>
+        </div>
+        <div class="section">
+          <p><small>Generated on: ${new Date().toLocaleString()}</small></p>
+          <p><small>Lease ID: ${lease.id}</small></p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Return HTML as buffer with a flag indicating it's HTML
+    return {
+      buffer: Buffer.from(html, 'utf-8'),
+      isHtml: true,
+      extension: 'html',
+    };
+  }
+
+  /**
    * Generate accessible PDF URL from Cloudinary public_id
    * @param {string} publicId
    * @param {string} resourceType
@@ -233,12 +279,16 @@ class PDFGenerationService {
     // For both raw and image, try the simplest possible URL
     const baseUrl = `https://res.cloudinary.com/${process.env.CLOUD_NAME}`;
 
+    // Check if publicId already ends with .pdf to avoid double extension
+    const needsExtension = !publicId.endsWith('.pdf');
+    const extension = needsExtension ? '.pdf' : '';
+
     if (resourceType === 'raw') {
       // Direct raw URL without any transformations
-      return `${baseUrl}/raw/upload/${publicId}.pdf`;
+      return `${baseUrl}/raw/upload/${publicId}${extension}`;
     } else {
       // Direct image URL without transformations for PDF
-      return `${baseUrl}/image/upload/${publicId}.pdf`;
+      return `${baseUrl}/image/upload/${publicId}${extension}`;
     }
   }
 
@@ -246,9 +296,10 @@ class PDFGenerationService {
    * Save PDF to local storage and return server URL
    * @param {Buffer} pdfBuffer
    * @param {string} fileName
+   * @param {string} extension - File extension (default: pdf)
    * @returns {Promise<Object>}
    */
-  async saveToLocalStorage(pdfBuffer, fileName) {
+  async saveToLocalStorage(pdfBuffer, fileName, extension = 'pdf') {
     const fs = require('fs');
     const path = require('path');
 
@@ -264,14 +315,14 @@ class PDFGenerationService {
       .replace(/[-T:.Z]/g, '')
       .slice(0, 14);
     const shortId = uuidv4().split('-')[0];
-    const uniqueFileName = `${fileName}-${timestamp}-${shortId}.pdf`;
+    const uniqueFileName = `${fileName}-${timestamp}-${shortId}.${extension}`;
     const filePath = path.join(uploadsDir, uniqueFileName);
 
-    // Save PDF to local file
+    // Save file to local file
     fs.writeFileSync(filePath, pdfBuffer);
 
     // Generate server URL using the correct route path
-    const serverUrl = `${process.env.BASE_URL || 'http://localhost:3005'}/api/files/pdfs/${uniqueFileName}`;
+    const serverUrl = `${process.env.BASE_URL || 'http://localhost:3000'}/api/files/pdfs/${uniqueFileName}`;
 
     return {
       fileName: uniqueFileName,
@@ -400,86 +451,132 @@ class PDFGenerationService {
       // 5. Generate PDF menggunakan Puppeteer
       console.log('🌐 Launching browser for PDF generation...');
 
-      const chromePath = this.getChromePath();
-      const launchOptions = {
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
-        ],
-      };
+      let pdfBuffer;
+      let fileExtension = 'pdf';
+      try {
+        let launchOptions;
 
-      if (chromePath) {
-        launchOptions.executablePath = chromePath;
+        if (isProduction && chromium) {
+          // Production: Use @sparticuz/chromium for Render.com/serverless
+          console.log('🔧 Using @sparticuz/chromium for production...');
+          launchOptions = {
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+          };
+        } else {
+          // Development: Use local Chrome or bundled Chromium
+          const chromePath = this.getChromePath();
+          launchOptions = {
+            headless: 'new',
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-first-run',
+              '--no-zygote',
+              '--disable-gpu',
+            ],
+          };
+
+          if (chromePath) {
+            launchOptions.executablePath = chromePath;
+          }
+        }
+
+        const browser = await puppeteer.launch(launchOptions);
+        const page = await browser.newPage();
+
+        await page.setContent(html, {
+          waitUntil: 'networkidle0',
+          timeout: 30000,
+        });
+
+        console.log('📄 Generating PDF...');
+        pdfBuffer = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: {
+            top: '20px',
+            bottom: '20px',
+            left: '20px',
+            right: '20px',
+          },
+          preferCSSPageSize: true,
+        });
+
+        await browser.close();
+        console.log(
+          `✅ PDF generated successfully! Size: ${Math.round(pdfBuffer.length / 1024)} KB`
+        );
+      } catch (browserError) {
+        console.warn('⚠️  Puppeteer/Chrome not available, creating placeholder PDF:', browserError.message);
+        // Create a simple placeholder PDF using basic text if Puppeteer fails
+        const placeholder = this.createPlaceholderPDF(lease);
+        pdfBuffer = placeholder.buffer;
+        fileExtension = placeholder.extension || 'html';
+        console.log(`📝 Using ${fileExtension.toUpperCase()} placeholder`);
       }
 
-      const browser = await puppeteer.launch(launchOptions);
-      const page = await browser.newPage();
-
-      await page.setContent(html, {
-        waitUntil: 'networkidle0',
-        timeout: 30000,
-      });
-
-      console.log('📄 Generating PDF...');
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-          top: '20px',
-          bottom: '20px',
-          left: '20px',
-          right: '20px',
-        },
-        preferCSSPageSize: true,
-      });
-
-      await browser.close();
-      console.log(
-        `✅ PDF generated successfully! Size: ${Math.round(pdfBuffer.length / 1024)} KB`
-      );
-
-      // 6. Save PDF locally with Cloudinary as backup
-      console.log('💾 Saving PDF locally...');
+      // 6. Save PDF to Cloudinary (persistent storage) with local as fallback
+      console.log('💾 Saving PDF to Cloudinary (persistent storage)...');
       const fileName = `rental-agreement-${lease.id}`;
 
       let uploadResult;
-      try {
-        // Primary: Save to local storage
-        uploadResult = await this.saveToLocalStorage(pdfBuffer, fileName);
-        console.log('✅ PDF saved to local storage successfully!');
-      } catch (localStorageError) {
-        console.warn(
-          '⚠️  Local storage failed, trying Cloudinary backup...',
-          localStorageError.message
-        );
 
+      // Check if Cloudinary is configured
+      if (isCloudinaryConfigured) {
         try {
-          // Backup: Upload to Cloudinary with signed method
+          // Primary: Upload to Cloudinary (persistent storage - survives server restarts)
           uploadResult = await this.uploadPDFToCloudinary(pdfBuffer, fileName);
-          console.log('✅ PDF uploaded to Cloudinary successfully as backup!');
+          console.log('✅ PDF uploaded to Cloudinary successfully!');
         } catch (cloudinaryError) {
-          console.error('❌ Both local storage and Cloudinary failed:', {
-            localError: localStorageError.message,
-            cloudinaryError: cloudinaryError.message,
-          });
-          throw new Error(
-            `Failed to save PDF: Local storage failed (${localStorageError.message}), Cloudinary backup also failed (${cloudinaryError.message})`
+          console.warn(
+            '⚠️  Cloudinary upload failed, trying local storage backup...',
+            cloudinaryError.message
           );
+
+          try {
+            // Fallback: Save to local storage
+            uploadResult = await this.saveToLocalStorage(pdfBuffer, fileName, fileExtension);
+            console.log('✅ PDF saved to local storage as backup!');
+          } catch (localStorageError) {
+            console.error('❌ Both Cloudinary and local storage failed:', {
+              cloudinaryError: cloudinaryError.message,
+              localError: localStorageError.message,
+            });
+            throw new Error(
+              `Failed to save PDF: Cloudinary failed (${cloudinaryError.message}), local backup also failed (${localStorageError.message})`
+            );
+          }
+        }
+      } else {
+        // Cloudinary not configured - use local storage (dev environment)
+        console.log('⚠️ Cloudinary not configured, using local storage (files may be lost on restart)');
+        try {
+          uploadResult = await this.saveToLocalStorage(pdfBuffer, fileName, fileExtension);
+          console.log('✅ PDF saved to local storage!');
+        } catch (localStorageError) {
+          console.error('❌ Local storage failed:', localStorageError.message);
+          throw new Error(`Failed to save PDF to local storage: ${localStorageError.message}`);
         }
       }
 
       console.log('📍 PDF URL:', uploadResult.url);
 
-      // 7. Simpan record RentalAgreement ke database
+      // 7. Save/Update RentalAgreement record in database (upsert for regeneration support)
       console.log('💾 Saving rental agreement record to database...');
-      const rentalAgreement = await prisma.rentalAgreement.create({
-        data: {
+      const rentalAgreement = await prisma.rentalAgreement.upsert({
+        where: { leaseId: lease.id },
+        update: {
+          pdfUrl: uploadResult.url,
+          publicId: uploadResult.publicId,
+          fileName: uploadResult.fileName,
+          fileSize: uploadResult.size,
+        },
+        create: {
           leaseId: lease.id,
           pdfUrl: uploadResult.url,
           publicId: uploadResult.publicId,

@@ -18,7 +18,9 @@
     "format:check": "prettier --check .",
     "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint src/ --ext .js,.jsx,.ts,.tsx --fix",
-    "prepare": "husky install"
+    "security:audit": "pnpm audit --audit-level=moderate",
+    "security:check": "pnpm run lint && pnpm run security:audit",
+    "prepare": "node -e \"if (process.env.NODE_ENV !== 'production') { require('child_process').execSync('npx husky install', {stdio: 'inherit'}) }\""
   },
   "keywords": [
     "express",
@@ -42,9 +44,11 @@
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.7.0",
     "cors": "^2.8.5",
+    "csv-parse": "^6.1.0",
     "dotenv": "^16.3.1",
     "ejs": "^3.1.10",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
     "express-session": "^1.18.2",
     "express-validator": "^7.0.1",
     "googleapis": "^159.0.0",
@@ -59,11 +63,14 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-twitter": "^1.0.4",
     "puppeteer": "^24.22.0",
+    "puppeteer-core": "^24.0.0",
+    "@sparticuz/chromium": "^131.0.1",
     "qrcode": "^1.5.4",
     "streamifier": "^0.1.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "xss": "^1.0.15"
   },
   "devDependencies": {
     "eslint": "^8.48.0",

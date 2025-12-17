@@ -51,6 +51,13 @@ model User {
   updatedAt        DateTime          @updatedAt
   verifiedAt       DateTime?
   
+  // MFA (Multi-Factor Authentication) fields
+  mfaEnabled       Boolean           @default(true)
+  mfaSecret        String?           // For future TOTP-based MFA
+  lastLoginAt      DateTime?
+  loginAttempts    Int               @default(0)
+  lockedUntil      DateTime?
+  
   // OAuth IDs
   googleId         String?           @unique
   facebookId       String?           @unique
@@ -58,6 +65,8 @@ model User {
   githubId         String?           @unique
   twitterId        String?           @unique
   
+  // Relations
+  otpCodes         OtpCode[]
   leasesAsLandlord Lease[]           @relation("LandlordLeases")
   leasesAsTenant   Lease[]           @relation("TenantLeases")
   approvals        ListingApproval[] @relation("ReviewerApprovals")
@@ -66,42 +75,106 @@ model User {
   propertyViews    PropertyView[]    @relation("PropertyViews")
   propertyRatings  PropertyRating[]  @relation("PropertyRatings")
   propertyFavorites PropertyFavorite[] @relation("PropertyFavorites")
-  mfaEnabled     Boolean     @default(false)
-  mfaSecret      String?     // For TOTP (optional, for future app-based MFA)
-  mfaMethod      MfaMethod?  @default(EMAIL)
-  mfaVerifiedAt  DateTime?
+  
+  // Security monitoring relations
+  loginHistory     LoginHistory[]
+  devices          UserDevice[]
+  securityAlerts   SecurityAlert[]
 
-  otps          Otp[]
   @@map("users")
 }
 
-// New OTP model
-model Otp {
-  id        String   @id @default(uuid())
-  userId    String
-  code      String
-  type      OtpType  @default(LOGIN)
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime @default(now())
+/// OTP codes for MFA and verification
+model OtpCode {
+  id          String    @id @default(uuid())
+  userId      String
+  code        String    // Hashed OTP code
+  type        OtpType   @default(LOGIN)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  @@index([userId, type, expiresAt])
-  @@map("otps")
+  @@index([userId, type])
+  @@index([expiresAt])
+  @@map("otp_codes")
 }
 
-// Enums
-enum MfaMethod {
-  EMAIL
-  SMS
+/// Login history for security monitoring and suspicious activity detection
+model LoginHistory {
+  id          String        @id @default(uuid())
+  userId      String
+  ipAddress   String
+  userAgent   String?
+  deviceType  String?       // mobile, desktop, tablet
+  browser     String?
+  os          String?
+  country     String?
+  city        String?
+  success     Boolean       @default(true)
+  failReason  String?       // Reason for failed login
+  riskScore   Int           @default(0)  // 0-100 risk score
+  loginMethod String?       @default("email") // email, google, facebook, github, twitter, apple
+  createdAt   DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([ipAddress])
+  @@index([createdAt])
+  @@index([loginMethod])
+  @@map("login_history")
 }
 
-enum OtpType {
-  LOGIN
-  ENABLE_MFA
-  DISABLE_MFA
+/// Known devices for each user
+model UserDevice {
+  id            String    @id @default(uuid())
+  userId        String
+  deviceHash    String    // Hash of device fingerprint
+  deviceName    String?   // User-friendly device name
+  deviceType    String?   // mobile, desktop, tablet
+  browser       String?
+  os            String?
+  ipAddress     String?
+  lastUsedAt    DateTime  @default(now())
+  isTrusted     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, deviceHash])
+  @@index([userId])
+  @@map("user_devices")
 }
+
+/// Security alert types
+enum AlertType {
+  NEW_DEVICE
+  MULTIPLE_FAILURES
+  ACCOUNT_LOCKED
+  PASSWORD_CHANGED
+  SUSPICIOUS_TIMING
+  NEW_LOCATION
+}
+
+/// Security alerts sent to users
+model SecurityAlert {
+  id          String      @id @default(uuid())
+  userId      String
+  type        AlertType
+  title       String
+  message     String
+  metadata    Json?       // Additional alert data (IP, device, etc.)
+  isRead      Boolean     @default(false)
+  emailSent   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("security_alerts")
+}
+
 
 /// Listing properti yang ditawarkan (detail fisik, lokasi, harga).
 /// Gambar/Foto disimpan langsung di kolom `images` (array URL).
@@ -128,7 +201,7 @@ model Property {
   latitude       Float?
   longitude      Float?
   placeId        String?
-  geom           Unsupported("geometry")? @map("geom")
+  // geom           Unsupported("geometry")? @map("geom") // Requires PostGIS extension
   
   // Informasi developer/proyek (opsional)
   projectName    String?
@@ -252,6 +325,7 @@ model Payment {
 }
 
 /// Perjanjian sewa (hasil generate PDF) untuk satu lease.
+/// Enhanced with digital signature validation and access permissions.
 model RentalAgreement {
   id          String   @id @default(uuid())
   leaseId     String   @unique
@@ -260,9 +334,79 @@ model RentalAgreement {
   fileName    String?  // Nama file untuk display
   fileSize    Int?     // Size dalam bytes
   generatedAt DateTime @default(now())
-  lease       Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  
+  // Digital Signature Workflow Status
+  status            AgreementStatus  @default(DRAFT)
+  documentHash      String?          // SHA-256 hash of PDF for integrity verification
+  
+  // Landlord Signature
+  landlordSigned    Boolean          @default(false)
+  landlordSignature String?          @db.Text // Base64 canvas signature image
+  landlordSignedAt  DateTime?
+  landlordSignHash  String?          // SHA-256(signature + timestamp + leaseId + userId)
+  landlordIpAddress String?
+  landlordConfirmed Boolean          @default(false) // Checkbox confirmation
+  
+  // Tenant Signature  
+  tenantSigned      Boolean          @default(false)
+  tenantSignature   String?          @db.Text // Base64 canvas signature image
+  tenantSignedAt    DateTime?
+  tenantSignHash    String?          // SHA-256(signature + timestamp + leaseId + userId)
+  tenantIpAddress   String?
+  tenantConfirmed   Boolean          @default(false) // Checkbox confirmation
+  
+  // Workflow Timestamps
+  expiresAt         DateTime?        // Agreement expires if not signed within deadline
+  completedAt       DateTime?        // When both parties signed
+  cancelledAt       DateTime?
+  cancelReason      String?
+  
+  // Current Version
+  currentVersion    Int              @default(1)
+  
+  // Relations
+  lease       Lease                @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  auditLogs   AgreementAuditLog[]
+  versions    AgreementVersion[]
 
+  @@index([status])
+  @@index([leaseId])
   @@map("rental_agreements")
+}
+
+/// Audit trail for all agreement actions - security compliance
+model AgreementAuditLog {
+  id           String          @id @default(uuid())
+  agreementId  String
+  action       AuditAction
+  performedBy  String?         // userId who performed action
+  ipAddress    String?
+  userAgent    String?
+  metadata     Json?           // Additional action data (e.g., verification result)
+  createdAt    DateTime        @default(now())
+  agreement    RentalAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("agreement_audit_logs")
+}
+
+/// Document versioning for tracking changes
+model AgreementVersion {
+  id           String          @id @default(uuid())
+  agreementId  String
+  version      Int
+  pdfUrl       String?
+  documentHash String?         // Hash of this version
+  changedBy    String?         // userId who made changes
+  changeReason String?
+  createdAt    DateTime        @default(now())
+  agreement    RentalAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@unique([agreementId, version])
+  @@index([agreementId])
+  @@map("agreement_versions")
 }
 
 /// Log prediksi harga (input mentah, harga prediksi, confidence, versi model).
@@ -398,4 +542,38 @@ enum PaymentStatus {
   COMPLETED
   FAILED
   REFUNDED
+}
+
+/// Jenis OTP untuk MFA dan verifikasi.
+enum OtpType {
+  LOGIN           // OTP for MFA login verification
+  PASSWORD_RESET  // OTP for password reset
+  EMAIL_VERIFY    // OTP for email verification
+}
+
+/// Status workflow untuk digital agreement signing.
+enum AgreementStatus {
+  DRAFT             // Agreement created but not yet sent for signing
+  PENDING_LANDLORD  // Waiting for landlord signature
+  PENDING_TENANT    // Landlord signed, waiting for tenant
+  COMPLETED         // Both parties signed
+  EXPIRED           // Signing deadline passed
+  CANCELLED         // Agreement cancelled by landlord
+}
+
+/// Audit actions for agreement security logging.
+enum AuditAction {
+  CREATED               // Agreement created
+  VIEWED                // Agreement viewed by a party
+  SIGNATURE_REQUESTED   // Signing request sent
+  REMINDER_SENT         // Reminder email sent to pending signer
+  LANDLORD_SIGNED       // Landlord submitted signature
+  TENANT_SIGNED         // Tenant submitted signature
+  COMPLETED             // Both signatures collected
+  EXPIRED               // Agreement expired
+  CANCELLED             // Agreement cancelled
+  DOWNLOADED            // PDF downloaded
+  VERIFICATION_SUCCESS  // Integrity check passed
+  VERIFICATION_FAILED   // Integrity check failed (tamper detected)
+  VERSION_CREATED       // New version of document created
 }

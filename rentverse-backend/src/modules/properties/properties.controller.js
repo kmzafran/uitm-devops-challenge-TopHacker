@@ -18,6 +18,7 @@ class PropertiesController {
 
       const filters = {
         propertyTypeId: req.query.propertyTypeId,
+        type: req.query.type, // Support filtering by property type name (e.g., "Apartment")
         city: req.query.city,
         available: req.query.available,
         status: req.query.status,

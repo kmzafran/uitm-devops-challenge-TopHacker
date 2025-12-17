@@ -1,12 +1,16 @@
 const axios = require('axios');
+const QRCode = require('qrcode');
 
 // Simple service to get QR code from e-signature endpoint
 async function getSignatureQRCode(userData) {
   try {
     const apiUrl = process.env.E_SIGNATURE_API_URL;
 
+    // If no API URL configured, generate a placeholder QR code
     if (!apiUrl) {
-      throw new Error('E_SIGNATURE_API_URL not configured');
+      console.log('📝 Generating placeholder QR code for:', userData.name);
+      const qrData = `E-SIGNATURE\nName: ${userData.name}\nRole: ${userData.role}\nLease ID: ${userData.leaseId}\nTimestamp: ${userData.timestamp}`;
+      return await QRCode.toDataURL(qrData);
     }
 
     // Send data as required by your endpoint structure
@@ -28,7 +32,11 @@ async function getSignatureQRCode(userData) {
     return response.data.qrCode;
   } catch (error) {
     console.error('E-signature API error:', error.message);
-    throw error;
+
+    // Fallback to placeholder QR code if API call fails
+    console.log('📝 Falling back to placeholder QR code for:', userData.name);
+    const qrData = `E-SIGNATURE\nName: ${userData.name}\nRole: ${userData.role}\nLease ID: ${userData.leaseId}\nTimestamp: ${userData.timestamp}`;
+    return await QRCode.toDataURL(qrData);
   }
 }
 

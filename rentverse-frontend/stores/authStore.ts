@@ -123,17 +123,10 @@ const useAuthStore = create<AuthStore>((set, get) => ({
     setError(null)
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      })
+      const result = await AuthApiClient.login(email, password)
+      const response = { ok: result.success, json: () => Promise.resolve(result) }
 
-      const result = await response.json()
-
-      if (response.ok && result.success) {
+      if (result.success) {
         if (result.data.requiresMfa) {
           set({
             mfaRequired: true,

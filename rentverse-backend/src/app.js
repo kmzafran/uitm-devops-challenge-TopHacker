@@ -32,10 +32,33 @@ app.use((req, res, next) => {
 connectDB();
 
 // Middleware
+// Enhanced Helmet configuration for security headers (OWASP M5-M6)
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:", "blob:"],
+        fontSrc: ["'self'", "https:", "data:"],
+        connectSrc: ["'self'", "https:", "wss:", "http://localhost:*"],
+        frameSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true,
+    },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    noSniff: true,
+    xssFilter: true,
+    hidePoweredBy: true,
   })
 );
 
@@ -124,8 +147,25 @@ app.use((req, res, next) => {
 });
 
 app.use(morgan('combined'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '5mb' })); // Increased limit for Base64 signature images
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
+// Security Middleware (OWASP M5-M6)
+const { globalLimiter } = require('./middleware/rateLimit');
+const { sanitizeRequest, detectInjection } = require('./middleware/requestValidator');
+const { accessLogger, errorLogger } = require('./middleware/apiLogger');
+
+// Apply global rate limiter (100 requests per 15 minutes per IP)
+app.use(globalLimiter);
+
+// Sanitize all incoming requests (XSS prevention)
+app.use(sanitizeRequest);
+
+// Detect potential SQL injection (logs warnings, doesn't block)
+app.use(detectInjection(false));
+
+// API access logging
+app.use(accessLogger);
 
 // Session middleware (required for OAuth)
 app.use(sessionMiddleware);
@@ -138,14 +178,18 @@ const path = require('path');
 app.use(
   '/api/files/pdfs',
   express.static(path.join(__dirname, '../uploads/pdfs'), {
-    // Only allow PDF files
+    // Only allow PDF and HTML files
     setHeaders: (res, path, stat) => {
       if (path.endsWith('.pdf')) {
         res.set('Content-Type', 'application/pdf');
         res.set('Content-Disposition', 'inline'); // Display in browser instead of download
         res.set('Cache-Control', 'public, max-age=31536000'); // 1 year cache
+      } else if (path.endsWith('.html')) {
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        res.set('Content-Disposition', 'inline');
+        res.set('Cache-Control', 'public, max-age=31536000'); // 1 year cache
       } else {
-        res.status(404).end(); // Block non-PDF files
+        res.status(404).end(); // Block other file types
       }
     },
   })
@@ -199,6 +243,11 @@ const bookingRoutes = require('./modules/bookings/bookings.routes');
 const propertyTypeRoutes = require('./modules/propertyTypes/propertyTypes.routes');
 const amenityRoutes = require('./modules/amenities/amenities.routes');
 const predictionRoutes = require('./modules/predictions/predictions.routes');
+const adminSecurityRoutes = require('./routes/admin.security.routes');
+const agreementRoutes = require('./routes/agreement.routes');
+const adminAgreementsRoutes = require('./routes/admin.agreements.routes');
+const adminPropertiesRoutes = require('./routes/admin.properties.routes');
+const adminUsersRoutes = require('./routes/admin.users.routes');
 
 // Use routes
 app.use('/api/auth', authRoutes);
@@ -209,6 +258,11 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/property-types', propertyTypeRoutes);
 app.use('/api/amenities', amenityRoutes);
 app.use('/api/predictions', predictionRoutes);
+app.use('/api/admin/security', adminSecurityRoutes);
+app.use('/api/agreements', agreementRoutes);
+app.use('/api/admin/agreements', adminAgreementsRoutes);
+app.use('/api/admin/properties', adminPropertiesRoutes);
+app.use('/api/admin/users', adminUsersRoutes);
 
 /**
  * @swagger

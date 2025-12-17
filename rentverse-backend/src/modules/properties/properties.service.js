@@ -140,9 +140,38 @@ class PropertiesService {
     }
 
     // Apply filters
-    if (filters.propertyTypeId) where.propertyTypeId = filters.propertyTypeId;
-    if (filters.city)
-      where.city = { contains: filters.city, mode: 'insensitive' };
+    if (filters.propertyTypeId) {
+      where.propertyTypeId = filters.propertyTypeId;
+    } else if (filters.type && filters.type !== 'Property') {
+      // Support filtering by property type name (e.g., "Apartment", "Condominium")
+      // Look up the propertyTypeId from the type name
+      const propertyType = await prisma.propertyType.findFirst({
+        where: {
+          OR: [
+            { name: { equals: filters.type, mode: 'insensitive' } },
+            { code: { equals: filters.type.toUpperCase(), mode: 'insensitive' } },
+          ],
+        },
+      });
+
+      if (propertyType) {
+        where.propertyTypeId = propertyType.id;
+      }
+    }
+
+    // Location filter - search in city, state, and address fields
+    // Use AND to ensure it works with other conditions like status
+    if (filters.city) {
+      where.AND = [
+        {
+          OR: [
+            { city: { contains: filters.city, mode: 'insensitive' } },
+            { state: { contains: filters.city, mode: 'insensitive' } },
+            { address: { contains: filters.city, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
     if (filters.available !== undefined)
       where.isAvailable = filters.available === 'true';
     if (filters.bedrooms) where.bedrooms = parseInt(filters.bedrooms);
@@ -157,9 +186,13 @@ class PropertiesService {
       if (filters.maxPrice) where.price.lte = parseFloat(filters.maxPrice);
     }
 
+    console.log('=== Properties Filter Debug ===');
+    console.log('Input filters:', filters);
+    console.log('Built where clause:', JSON.stringify(where, null, 2));
+
     const [properties, total] = await Promise.all([
       propertiesRepository.findMany({ where, skip, take: limit }),
-      propertiesRepository.count(where),
+      propertiesRepository.count({ where }),
     ]);
 
     const pages = Math.ceil(total / limit);
