@@ -420,11 +420,11 @@ NEXT_PUBLIC_API_URL="https://api.your-domain.com"
 
 ## 🤝 Team
 
-**Developed by**: Zafran Ishak (kmzafran@gmail.com)  
+- **Developed by**: Zafran Ishak (kmzafran@gmail.com)  
                   Ezril Besry (kudanish45@gmail.com)
                   Daniel Rosli (dhakim641@gmail.com)
-**Institution**: Universiti Teknologi MARA (UiTM)  
-**Challenge**: DevSecOps Security Implementation  
+- **Institution**: Universiti Teknologi MARA (UiTM)  
+- **Challenge**: DevSecOps Security Implementation  
 
 ---
 
