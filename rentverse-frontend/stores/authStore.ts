@@ -28,7 +28,7 @@ interface AuthActions {
   resetForm: () => void
   isLoginFormValid: () => boolean
   isSignUpFormValid: () => boolean
-  
+
   // Auth persistence
   initializeAuth: () => void
   validateToken: () => Promise<boolean>
@@ -135,6 +135,13 @@ const useAuthStore = create<AuthStore>((set, get) => ({
 
       if (response.ok && result.success) {
         if (result.data.requiresMfa) {
+          const mfaState = {
+            mfaRequired: true,
+            userId: result.data.userId,
+          }
+          // Persist MFA state to sessionStorage to survive page navigation
+          sessionStorage.setItem('mfaState', JSON.stringify(mfaState))
+
           set({
             mfaRequired: true,
             userId: result.data.userId,
@@ -147,7 +154,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
 
         // Store user data and token
         const backendUser = result.data.user
-        
+
         // Debug logging for development
         if (process.env.NODE_ENV === 'development') {
           console.log('[AUTH] Backend user data:', backendUser)
@@ -155,7 +162,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
           console.log('[AUTH] Last name:', backendUser.lastName)
           console.log('[AUTH] Name field:', backendUser.name)
         }
-        
+
         const user: User = {
           id: backendUser.id,
           email: backendUser.email,
@@ -167,7 +174,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
           role: backendUser.role || 'user',
           birthdate: backendUser.dateOfBirth || undefined,
         }
-        
+
         // Debug logging for final user object
         if (process.env.NODE_ENV === 'development') {
           console.log('[AUTH] Final user object:', user)
@@ -253,6 +260,8 @@ const useAuthStore = create<AuthStore>((set, get) => ({
           localStorage.setItem('authToken', result.data.token)
           localStorage.setItem('authUser', JSON.stringify(user))
           setCookie('authToken', result.data.token, 7)
+          // Clear MFA session state
+          sessionStorage.removeItem('mfaState')
         }
 
         window.location.href = '/'
@@ -360,7 +369,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
       phone: '',
       signUpPassword: '',
     })
-    
+
     // Clear localStorage and cookies
     if (typeof window !== 'undefined') {
       localStorage.removeItem('authToken')
@@ -395,7 +404,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
           isLoggedIn: true,
           error: null,
         })
-        
+
         if (process.env.NODE_ENV === 'development') {
           console.log('[AUTH] Initialized with stored user:', user)
         }
@@ -427,17 +436,17 @@ const useAuthStore = create<AuthStore>((set, get) => ({
 
       if (response.ok) {
         const result = await response.json()
-        
+
         // Debug logging for development
         if (process.env.NODE_ENV === 'development') {
           console.log('[AUTH] validateToken response:', result)
           console.log('[AUTH] result.data:', result.data)
         }
-        
+
         if (result.success && result.data?.user) {
           // Update user data with fresh data from backend
           const backendUser = result.data.user
-          
+
           // Debug logging for backend user data
           if (process.env.NODE_ENV === 'development') {
             console.log('[AUTH] validateToken backendUser:', backendUser)
@@ -445,7 +454,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
             console.log('[AUTH] validateToken lastName:', backendUser.lastName)
             console.log('[AUTH] validateToken name:', backendUser.name)
           }
-          
+
           const user: User = {
             id: backendUser.id,
             email: backendUser.email,
@@ -457,7 +466,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
             role: backendUser.role || 'user',
             birthdate: backendUser.dateOfBirth || undefined,
           }
-          
+
           // Debug logging for final user object
           if (process.env.NODE_ENV === 'development') {
             console.log('[AUTH] validateToken final user:', user)
@@ -478,7 +487,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
       } else if (process.env.NODE_ENV === 'development') {
         console.log('[AUTH] validateToken failed - response not ok:', response.status)
       }
-      
+
       // Token is invalid or response unsuccessful, clear auth state
       get().logout()
       return false
@@ -506,7 +515,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
 
       if (response.ok) {
         const result = await response.json()
-        
+
         if (result.success && result.data?.user) {
           // Update user data with fresh data from backend
           const backendUser = result.data.user
@@ -533,7 +542,7 @@ const useAuthStore = create<AuthStore>((set, get) => ({
           return true
         }
       }
-      
+
       return false
     } catch (error) {
       console.error('Error refreshing user data:', error)

@@ -18,15 +18,40 @@ const VerifyMfaPage = () => {
     isLoggedIn,
   } = useAuthStore()
 
+  // Restore MFA state from sessionStorage on mount
   useEffect(() => {
-    // If the user is already logged in or MFA is not required, redirect to home
-    if (isLoggedIn) {
-      router.push('/')
+    if (typeof window !== 'undefined' && !mfaRequired) {
+      const storedMfaState = sessionStorage.getItem('mfaState')
+      if (storedMfaState) {
+        try {
+          const { mfaRequired: storedMfaRequired, userId } = JSON.parse(storedMfaState)
+          if (storedMfaRequired && userId) {
+            // Restore state to Zustand store
+            useAuthStore.setState({ mfaRequired: storedMfaRequired, userId })
+            return // Don't redirect, we have valid MFA state
+          }
+        } catch (e) {
+          console.error('Error parsing MFA state:', e)
+        }
+      }
     }
-    // If the page is accessed directly without the MFA step, redirect
-    if (!mfaRequired && !isLoggedIn) {
-        // We can redirect to login or home, home is probably better
+  }, [mfaRequired])
+
+  useEffect(() => {
+    // If the user is already logged in, redirect to home
+    if (isLoggedIn) {
+      sessionStorage.removeItem('mfaState')
+      router.push('/')
+      return
+    }
+
+    // Check both Zustand state and sessionStorage before redirecting
+    if (!mfaRequired) {
+      const storedMfaState = sessionStorage.getItem('mfaState')
+      if (!storedMfaState) {
+        // No MFA state anywhere, redirect to home
         router.push('/')
+      }
     }
   }, [isLoggedIn, mfaRequired, router])
 
