@@ -9,6 +9,10 @@ const { connectDB } = require('./config/database');
 const swaggerSpecs = require('./config/swagger');
 const sessionMiddleware = require('./middleware/session');
 
+// Security middlewares
+const { globalLimiter, authLimiter, apiLimiter } = require('./middleware/rateLimit');
+const { httpsEnforcement, additionalSecurityHeaders, securityLogger } = require('./middleware/security');
+
 const app = express();
 
 // Ngrok and proxy handling middleware
@@ -31,13 +35,53 @@ app.use((req, res, next) => {
 // Connect to database
 connectDB();
 
-// Middleware
+// ============ SECURITY MIDDLEWARE (OWASP M5-M6) ============
+
+// HTTPS Enforcement (redirects to HTTPS in production)
+app.use(httpsEnforcement);
+
+// Enhanced Helmet security headers
 app.use(
   helmet({
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    // HTTP Strict Transport Security
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true,
+    },
+    // Content Security Policy
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Needed for Swagger UI
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'", 'https:', 'wss:'],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
+      },
+    },
+    // Prevent clickjacking
+    frameguard: { action: 'deny' },
+    // Prevent MIME sniffing
+    noSniff: true,
+    // XSS Filter
+    xssFilter: true,
   })
 );
+
+// Additional security headers
+app.use(additionalSecurityHeaders);
+
+// Security request logging (logs suspicious patterns)
+app.use(securityLogger);
+
+// Global rate limiter - 100 requests per 15 minutes
+app.use(globalLimiter);
 
 // Simple CORS configuration - allow everything in development
 app.use(
@@ -200,15 +244,15 @@ const propertyTypeRoutes = require('./modules/propertyTypes/propertyTypes.routes
 const amenityRoutes = require('./modules/amenities/amenities.routes');
 const predictionRoutes = require('./modules/predictions/predictions.routes');
 
-// Use routes
-app.use('/api/auth', authRoutes);
+// Use routes with rate limiting
+app.use('/api/auth', authLimiter, authRoutes); // Stricter rate limit for auth
 app.use('/api/upload', uploadRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/property-types', propertyTypeRoutes);
-app.use('/api/amenities', amenityRoutes);
-app.use('/api/predictions', predictionRoutes);
+app.use('/api/users', apiLimiter, userRoutes);
+app.use('/api/properties', apiLimiter, propertyRoutes);
+app.use('/api/bookings', apiLimiter, bookingRoutes);
+app.use('/api/property-types', apiLimiter, propertyTypeRoutes);
+app.use('/api/amenities', apiLimiter, amenityRoutes);
+app.use('/api/predictions', apiLimiter, predictionRoutes);
 
 /**
  * @swagger
